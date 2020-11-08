@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import os
 
 from typing import Callable, Optional, Tuple, TYPE_CHECKING, Union
@@ -541,6 +542,9 @@ class MainGameEventHandler(EventHandler):
         elif key == tcod.event.K_v:
             return HistoryViewer(self.engine)
 
+        elif key == tcod.event.K_BACKQUOTE:
+            return KnobsViewer(self.engine)
+
         elif key == tcod.event.K_g:
             action = PickupAction(player)
 
@@ -627,6 +631,126 @@ class HistoryViewer(EventHandler):
             self.cursor = 0  # Move directly to the top message.
         elif event.sym == tcod.event.K_END:
             self.cursor = self.log_length - 1  # Move directly to the last message.
+        else:  # Any other key moves back to the main game state.
+            return MainGameEventHandler(self.engine)
+        return None
+
+
+@dataclass
+class Knob:
+    label: str
+    min: int
+    max: int
+    val: int
+
+
+class KnobConsole(tcod.Console):
+    bar_x = 4
+    bar_y = 2
+    bar_width = 3
+    bar_height = 20
+
+    def __init__(self, knob: Knob, selected: bool):
+        super().__init__(11, 25)
+        self.knob = knob
+        self.selected = selected
+
+    def draw(self):
+        percent_full = float(self.knob.val - self.knob.min) / float(
+            self.knob.max - self.knob.min
+        )
+        self.draw_frame(0, 0, self.width, self.height, self.knob.label)
+        self.draw_rect(
+            self.bar_x,
+            self.bar_y,
+            self.bar_width,
+            self.bar_height,
+            ch=1,
+            bg=color.bar_filled,
+        )
+        self.draw_rect(
+            self.bar_x,
+            self.bar_y,
+            self.bar_width,
+            int((1 - percent_full) * self.bar_height),
+            ch=1,
+            bg=color.bar_empty,
+        )
+
+        self.print(
+            self.bar_x + self.bar_width // 2,
+            self.bar_y + self.bar_height + 1,
+            str(int(percent_full * 100)),
+            color.menu_text,
+            color.red if self.selected else None,
+            alignment=tcod.CENTER,
+        )
+
+
+class KnobsViewer(EventHandler):
+    """Shows the level-generation knobs"""
+
+    min_room_size = Knob("Min Room Size", 3, 15, 6)
+    max_room_size = Knob("Max Room Size", 6, 30, 10)
+    max_rooms = Knob("Max Rooms", 10, 50, 30)
+    max_enemies = Knob("Max Enemies/Room", 0, 10, 2)
+    max_items = Knob("Max Enemies/Room", 0, 10, 2)
+
+    origin = (3, 3)
+
+    knobs = (
+        min_room_size,
+        max_room_size,
+        max_rooms,
+        max_enemies,
+        max_items,
+    )
+
+    def __init__(self, engine: Engine):
+        super().__init__(engine)
+        self.cursor = 0
+
+    def on_render(self, console: tcod.Console) -> None:
+        super().on_render(console)  # Draw the main state as the background.
+
+        knobs_console = tcod.Console(console.width - 6, console.height - 6)
+
+        # Draw a frame with a custom banner title.
+        knobs_console.draw_frame(0, 0, knobs_console.width, knobs_console.height)
+        knobs_console.print_box(
+            0, 0, knobs_console.width, 1, "┤Knobs├", alignment=tcod.CENTER
+        )
+
+        for index, knob in enumerate(self.knobs):
+            knob_console = KnobConsole(knob, index == self.cursor)
+            knob_console.draw()
+            knob_console.blit(knobs_console, 3 + knob_console.width * index, 3)
+
+        # # Render the message log using the cursor parameter.
+        # self.engine.message_log.render_messages(
+        #     log_console,
+        #     1,
+        #     1,
+        #     knobs_console.width - 2,
+        #     knobs_console.height - 2,
+        #     self.engine.message_log.messages[: self.cursor + 1],
+        # )
+
+        knobs_console.blit(console, self.origin[0], self.origin[1])
+
+    def ev_keydown(self, event: tcod.event.KeyDown) -> Optional[MainGameEventHandler]:
+        current_knob = self.knobs[self.cursor]
+
+        if event.sym == tcod.event.K_RIGHT:
+            self.cursor = (self.cursor + 1) % len(self.knobs)
+        elif event.sym == tcod.event.K_LEFT:
+            self.cursor = (self.cursor - 1) % len(self.knobs)
+        elif event.sym == tcod.event.K_UP:
+            current_knob.val = min(current_knob.val + 1, current_knob.max)
+        elif event.sym == tcod.event.K_DOWN:
+            current_knob.val = max(current_knob.val - 1, current_knob.min)
+        elif event.sym == tcod.event.K_ESCAPE:
+            pass  # close
         else:  # Any other key moves back to the main game state.
             return MainGameEventHandler(self.engine)
         return None

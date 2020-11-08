@@ -59,3 +59,4 @@ def render_names_at_mouse_location(
     )
 
     console.print(x=x, y=y, string=names_at_mouse_location)
+
